@@ -5,155 +5,125 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, accuracy_score
 
+
 # 1. Impute Missing Values
 def impute_missing_values(data, strategy='mean'):
     """
-    Fill missing values in the dataset.
-    :param data: pandas DataFrame
-    :param strategy: str, imputation method ('mean', 'median', 'mode')
-    :return: pandas DataFrame
+    Fills missing values in a dataset based on the given strategy.
+    Supports mean, median, and mode.
     """
-    # TODO: Fill missing values based on the specified strategy
-    #pass
     for col in data.columns:
         if data[col].dtype in ['int64', 'float64']:
             if strategy == 'mean':
-                data[col].fillna(data[col].mean(), inplace=True)
+                fill_value = data[col].mean()
             elif strategy == 'median':
-                data[col].fillna(data[col].median(), inplace=True)
+                fill_value = data[col].median()
             elif strategy == 'mode':
-                data[col].fillna(data[col].mode()[0], inplace=True)
-        elif data[col].dtype == 'object':
-            # For categorical columns, fill with the mode
-            data[col].fillna(data[col].mode()[0], inplace=True)
+                fill_value = data[col].mode()[0]
+            else:
+                continue
+        else:
+            fill_value = data[col].mode()[0]
+        
+        data[col] = data[col].fillna(fill_value)  # SAFE: Avoids chained assignment warning
     return data
 
-# 2. Remove Duplicates
 
+# 2. Remove Duplicate Rows
 def remove_duplicates(data):
     """
-    Remove duplicate rows from the dataset.
-    :param data: pandas DataFrame
-    :return: pandas DataFrame
+    Removes exact duplicate rows from the dataset.
     """
-    data = data.drop_duplicates()
-    return data
+    return data.drop_duplicates()
 
-    # TODO: Remove duplicate rows
-    #pass
-    for col in data.columns:
-        if data[col].dtype == 'object':
-            # Convert to string type to ensure consistency
-            data[col] = data[col].astype(str)
-    data.drop_duplicates(inplace=True)
-    return data
 
 # 3. Normalize Numerical Data
-def normalize_data(data,method='minmax'):
-    """Apply normalization to numerical features.
-    :param data: pandas DataFrame
-    :param method: str, normalization method ('minmax' (default) or 'standard')
+def normalize_data(data, method='minmax'):
     """
-    # TODO: Normalize numerical data using Min-Max or Standard scaling
-    # pass
-    for col in data.columns:
-        if data[col].dtype in ['int64', 'float64']:
-            if method == 'minmax':
-                scaler = MinMaxScaler()
-                data[col] = scaler.fit_transform(data[[col]])
-            elif method == 'standard':
-                scaler = StandardScaler()
-                data[col] = scaler.fit_transform(data[[col]])
+    Scales numeric features using MinMaxScaler or StandardScaler.
+    """
+    numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns
+    if method == 'minmax':
+        scaler = MinMaxScaler()
+    elif method == 'standard':
+        scaler = StandardScaler()
+    else:
+        raise ValueError("Invalid normalization method. Use 'minmax' or 'standard'.")
+
+    data[numeric_cols] = scaler.fit_transform(data[numeric_cols])
     return data
 
-# 4. Remove Redundant Features   
+
+# 4. Remove Redundant Features Based on Correlation
 def remove_redundant_features(data, threshold=0.9):
-    """Remove redundant or duplicate columns.
-    :param data: pandas DataFrame
-    :param threshold: float, correlation threshold
-    :return: pandas DataFrame
     """
-    # TODO: Remove redundant features based on the correlation threshold (HINT: you can use the corr() method)
-    #pass
-    for col in data.columns:
-        if data[col].dtype == 'object':
-            # Convert categorical columns to numeric using one-hot encoding
-            data = pd.get_dummies(data, columns=[col], drop_first=True)
-    corr_matrix = data.corr().abs() # Get the absolute correlation matrix       
-    # Select upper triangle of correlation matrix
-    upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-    
-    # Find features with correlation greater than the threshold
-    to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
-    # Drop the redundant features
-    data.drop(columns=to_drop, inplace=True)
-    return data
-
-
-# 5. Simple Model
-# 5. Simple Model for Target Classification
-
-    
-
-# ---------------------------------------------------
+    Drops highly correlated features to reduce multicollinearity.
+    """
+    corr_matrix = data.corr().abs()
+    upper_triangle = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    to_drop = [col for col in upper_triangle.columns if any(upper_triangle[col] > threshold)]
+    return data.drop(columns=to_drop)
 
 def simple_model(input_data, split_data=True, scale_data=False, print_report=False):
     """
-    A simple logistic regression model for target classification.
-    Parameters:
-    input_data (pd.DataFrame): The input data containing features and the target variable 'target' (assume 'target' is the first column).
-    split_data (bool): Whether to split the data into training and testing sets. Default is True.
-    scale_data (bool): Whether to scale the features using StandardScaler. Default is False.
-    print_report (bool): Whether to print the classification report. Default is False.
-    Returns:
-    None
-    The function performs the following steps:
-    1. Removes columns with missing data.
-    2. Splits the input data into features and target.
-    3. Encodes categorical features using one-hot encoding.
-    4. Splits the data into training and testing sets (if split_data is True).
-    5. Scales the features using StandardScaler (if scale_data is True).
-    6. Instantiates and fits a logistic regression model.
-    7. Makes predictions on the test set.
-    8. Evaluates the model using accuracy score and classification report.
-    9. Prints the accuracy and classification report (if print_report is True).
+    Trains and evaluates a logistic regression model.
+    Assumes the first column is the target.
+    Automatically filters target to binary classes and ensures compatibility.
     """
+    import pandas as pd
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import classification_report, accuracy_score
 
-    # if there's any missing data, remove the columns
-    input_data.dropna(inplace=True)
+    print("\n Starting model pipeline...")
 
-    # split the data into features and target
-    target = input_data.copy()[input_data.columns[0]]
-    features = input_data.copy()[input_data.columns[1:]]
+    # Step 1: Clean the target column
+    target_col = input_data.columns[0]
 
-    # if the column is not numeric, encode it (one-hot)
-    for col in features.columns:
-        if features[col].dtype == 'object':
-            features = pd.concat([features, pd.get_dummies(features[col], prefix=col)], axis=1)
-            features.drop(col, axis=1, inplace=True)
+    # Drop rows with missing target
+    input_data = input_data.dropna(subset=[target_col])
 
-    X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, stratify=target, random_state=42)
+    # Extract target and features
+    target = pd.to_numeric(input_data[target_col], errors='coerce')  # handles float, string, NaN
+    features = input_data.iloc[:, 1:]
 
+    # Keep only 0 and 1
+    valid_idx = target[target.isin([0, 1])].index
+    target = target.loc[valid_idx].astype(int)
+    features = features.loc[valid_idx]
+
+    # Encode features
+    features = pd.get_dummies(features)
+
+    print("\n Sanity Check on Target:")
+    print("Target dtype:", target.dtype)
+    print("Target values:\n", target.value_counts())
+
+    # Train/test split
+    if split_data:
+        X_train, X_test, y_train, y_test = train_test_split(
+            features, target, test_size=0.2, stratify=target, random_state=42
+        )
+    else:
+        X_train = X_test = features
+        y_train = y_test = target
+
+    # Optional scaling
     if scale_data:
-        # scale the data
-        X_train = normalize_data(X_train)
-        X_test = normalize_data(X_test)
-        
-    # instantiate and fit the model
-    log_reg = LogisticRegression(random_state=42, max_iter=100, solver='liblinear', penalty='l2', C=1.0)
-    log_reg.fit(X_train, y_train)
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
 
-    # make predictions and evaluate the model
-    y_pred = log_reg.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    report = classification_report(y_test, y_pred)
+    # Model training
+    model = LogisticRegression(max_iter=1000, random_state=42)
+    model.fit(X_train, y_train)
 
-    print(f'Accuracy: {accuracy}')
-    
-    # if specified, print the classification report
+    # Evaluation
+    y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    print(f"\n Model Accuracy: {acc:.4f}")
+
     if print_report:
-        print('Classification Report:')
-        print(report)
-        print('Read more about the classification report: https://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html and https://www.nb-data.com/p/breaking-down-the-classification')
-    
-    return None
+        print("\n Classification Report:")
+        print(classification_report(y_test, y_pred))
